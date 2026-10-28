@@ -25,7 +25,7 @@ function frame(now){raf=null;let dt=Math.min((now-last)/1000,.05);last=now;if(!r
  // Render the same effect at the interpolated card position; decay travels with its card.
  if(i===0&&diyaRenderer){diyaRenderer.update({x,y:centerY,w,fill,visibility,time:reduced.matches?2:time,life,floor:centerY+ch*.5+H*.075});}else{effects.draw(effectContext,i,x,centerY,w,h,reduced.matches?2:time,life,reduced.matches);}
  // Mirror both the card surface and its effects into a single fading stage reflection.
- if(W>=640){ctx.save();let floor=centerY+ch*.5+H*.075;ctx.translate(0,floor*2);ctx.scale(1,-1);ctx.globalAlpha=visibility*.13;let g=ctx.createLinearGradient(x,centerY-h/2,x,centerY+h/2);g.addColorStop(0,'#080609');g.addColorStop(1,data[i].color);ctx.fillStyle=g;ctx.filter='blur(7px)';ctx.beginPath();ctx.roundRect(x-w/2,centerY-h/2,w,h,w/2);ctx.fill();ctx.restore();}
+ if(W>=640&&!(i===0&&diyaRenderer)){ctx.save();let floor=centerY+ch*.5+H*.075;ctx.translate(0,floor*2);ctx.scale(1,-1);ctx.globalAlpha=visibility*.13;let g=ctx.createLinearGradient(x,centerY-h/2,x,centerY+h/2);g.addColorStop(0,'#080609');g.addColorStop(1,data[i].color);ctx.fillStyle=g;ctx.filter='blur(7px)';ctx.beginPath();ctx.roundRect(x-w/2,centerY-h/2,w,h,w/2);ctx.fill();ctx.restore();}
  }
  ctx.drawImage(effectLayer,0,0,W,H);if(W>=640){ctx.save();let floor=centerY+ch*.5+H*.075;ctx.translate(0,floor*2);ctx.scale(1,-1);ctx.globalAlpha=.12;ctx.filter='blur(6px)';ctx.drawImage(effectLayer,0,0,W,H);ctx.restore();}
  if(W>=640){ctx.save();let y=centerY+ch*.5+H*.075;ctx.globalCompositeOperation='source-over';let mask=ctx.createLinearGradient(0,y,0,H);mask.addColorStop(0,'#09070900');mask.addColorStop(.85,'#090709');ctx.fillStyle=mask;ctx.fillRect(0,y,W,H-y);ctx.restore()}

@@ -17,7 +17,9 @@ vec2 field(vec3 p){
  // Emitter is the upper semicircle and its shoulders, never a straight strip.
  float root=.305+sqrt(max(0.,.25-min(p.x*p.x,.25)));
  float rise=max(0.,p.y-root);
- float height=(.74-.20*clamp(abs(p.x)/.8,0.,1.))*(.35+.65*uOpen);
+ float angle=asin(clamp(p.x/.5,-1.,1.));
+ float lobe=.085*sin(angle*3.+uTime*.37)+.055*(noise3(vec3(angle*2.,uTime*.3,4.))-.5);
+ float height=(.52+lobe+.20*smoothstep(0.,.5,abs(p.x)))*(.35+.65*uOpen);
  vec3 flow=p*vec3(1.,1.1,1.7)-vec3(0.,uTime*.8,0.);
  vec3 warp=vec3(noise3(flow*1.2+vec3(3.,0.,0.)),noise3(flow+vec3(0.,0.,7.)),noise3(flow+vec3(9.,4.,0.)))-.5;
  float n=fbm(flow*3.5+warp*2.4);
@@ -28,8 +30,9 @@ vec2 field(vec3 p){
  float upper=smoothstep(-.2,.30,p.y);float shoulderFade=exp(-max(0.,root-p.y)*14.);shoulderFade*=exp(-max(abs(p.x)-.5,0.)*(18.-11.*smoothstep(.5,1.1,p.y)));
  float outside=smoothstep(-.025,.025,d);
  float collar=exp(-max(d,0.)*20.)*upper;
- float body=max(tongues*width,collar*.9)*depth*upper*outside*shoulderFade;
- float temperature=clamp(.95-.8*rise/max(height,.1)+(n-.5)*.3,0.,1.);
+ float filaments=.3+.7*smoothstep(.24,.8,noise3(flow*8.+warp*2.));
+ float body=max(tongues*width*filaments,collar*.65)*depth*upper*outside*shoulderFade;
+ float temperature=clamp(.99-.70*rise/max(height,.1)+(n-.5)*.3,0.,1.);
  temperature*=.78+.22*smoothstep(.3,.8,p.y);return vec2(body,temperature);
 }
 void main(){
@@ -38,8 +41,8 @@ void main(){
  for(int i=0;i<36;i++){
   vec2 f=field(p);float density=f.x*8.5;
   float opacity=1.-exp(-density*stepSize);
-  vec3 color=mix(vec3(.64,.018,.003),vec3(1.35,.22,.025),smoothstep(.12,.65,f.y));
-  color=mix(color,vec3(2.5,1.85,1.3),smoothstep(.63,.99,f.y));
+  vec3 color=mix(vec3(.58,.006,.004),vec3(1.45,.055,.012),smoothstep(.12,.65,f.y));
+  color=mix(color,vec3(3.1,2.05,1.7),smoothstep(.63,.99,f.y));
   sum+=transmission*opacity*color;
   transmission*=1.-opacity;
   p.z-=stepSize;if(transmission<.025)break;
@@ -49,20 +52,16 @@ void main(){
 }`;
 const surfaceFragment=`precision highp float;
 in vec3 vLocal;in vec2 vUv;out vec4 outColor;
-uniform float uTime;uniform float uFill;uniform float uOpacity;
+uniform float uTime;uniform float uFill;uniform float uOpacity;uniform float uReflection;uniform sampler2D uPalette;
 float gauss(vec2 p,vec2 center,vec2 radius){vec2 q=(p-center)/radius;return exp(-dot(q,q)*2.);}
-void main(){vec2 p=vec2(vUv.x-.5,(vUv.y-.5)*1.61);float d=length(vec2(p.x,max(abs(p.y)-.305,0.)))-.5;float mask=1.-smoothstep(-fwidth(d),fwidth(d),d);if(mask<.005)discard;
+void main(){vec2 p=vec2(vUv.x-.5,(vUv.y-.5)*1.61);float d=length(vec2(p.x,max(abs(p.y)-.305,0.)))-.5;float aa=mix(fwidth(d),.035,uReflection);float mask=1.-smoothstep(-aa,aa,d);if(mask<.005)discard;
 vec3 dark=mix(vec3(.015,.009,.014),vec3(.24,.025,.07),pow(1.-vUv.y,3.));
-float drift=sin(uTime*.23)*.03;
-vec3 col=vec3(.73,.25,.40);
-col=mix(col,vec3(.79,.42,.65),gauss(vUv,vec2(.12+drift,.83),vec2(.65,.72))*.95);
-col=mix(col,vec3(.86,.65,.40),gauss(vUv,vec2(.93,.76),vec2(.65,.7))*.9);
-col=mix(col,vec3(.77,.075,.35),gauss(vUv,vec2(.24,.18),vec2(.65,.7))*.86);
-col=mix(col,vec3(.94,.67,.57),gauss(vUv,vec2(1.02+drift,.03),vec2(.65,.65))*.88);
+vec2 paletteUv=vec2(clamp(vUv.x+sin(uTime*.23+vUv.y*2.)*.012,0.,1.),1.-vUv.y);
+vec3 col=texture(uPalette,(paletteUv*vec2(4.,5.)+.5)/vec2(5.,6.)).rgb;
 float grain=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453)-.5;
 col+=grain*.012;
 vec3 srgb=mix(dark,col,uFill);vec3 linear=pow(max(srgb,vec3(0.)),vec3(2.2));
-outColor=vec4(linear,mask*uOpacity);
+float fade=mix(1.,pow(1.-vUv.y,2.6),uReflection);outColor=vec4(linear,mask*uOpacity*fade);
 }`;
 const sparkVertex=`in float aSeed;in float aDrift;in float aSize;out float vFade;out float vSeed;
 uniform float uTime;uniform float uStrength;uniform float uPixelRatio;
@@ -70,6 +69,11 @@ void main(){float life=fract(uTime*(.28+aDrift*.48)+aSeed);float theta=(aSize-.5
 const sparkFragment=`precision highp float;in float vFade;in float vSeed;out vec4 outColor;
 float segment(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;return length(pa-ba*clamp(dot(pa,ba)/dot(ba,ba),0.,1.));}
 void main(){vec2 p=gl_PointCoord*2.-1.;float mask;if(vSeed>.91){float d=min(segment(p,vec2(0.,-.75),vec2(.7,.6)),min(segment(p,vec2(.7,.6),vec2(-.7,.6)),segment(p,vec2(-.7,.6),vec2(0.,-.75))));mask=1.-smoothstep(.07,.18,d);}else{float d=length(p);mask=exp(-d*d*4.5)*(1.-smoothstep(.7,1.,d));}outColor=vec4(vec3(2.1,1.25,.69)*mask*vFade,mask*vFade);}`;
+
+
+const rimFragment=`precision highp float;in vec3 vLocal;in vec2 vUv;out vec4 outColor;uniform float uStrength;
+void main(){float d=length(vec2(vLocal.x,max(abs(vLocal.y)-.305,0.)))-.5;float core=1.-smoothstep(.002,.008,abs(d));float halo=exp(-abs(d)*85.)*.22;float light=(core*.8+halo)*uStrength;outColor=vec4(vec3(1.5,.055,.022)*light,light);}`;
+const floorFragment=`precision highp float;in vec3 vLocal;in vec2 vUv;out vec4 outColor;uniform float uStrength;void main(){vec2 p=(vUv-.5)*2.;float a=exp(-p.x*p.x*3.-p.y*p.y*8.)*uStrength;outColor=vec4(vec3(.48,.008,.012)*a,a);}`;
 
 export class DiyaRenderer{
  constructor(container){
@@ -85,13 +89,15 @@ export class DiyaRenderer{
   const material=new THREE.ShaderMaterial({...additive,glslVersion:THREE.GLSL3,vertexShader:vertex,fragmentShader:fireFragment,uniforms:this.fireUniforms});
   const geometry=new THREE.BoxGeometry(2.2,3.1,1.14);geometry.translate(0,.45,0);
   this.fire=new THREE.Mesh(geometry,material);this.fire.renderOrder=1;this.scene.add(this.fire);
-  this.surfaceUniforms={uTime:{value:0},uFill:{value:1},uOpacity:{value:1}};
+  const paletteSamples=[[[227, 161, 140], [227, 161, 140], [227, 161, 140], [227, 161, 140], [227, 161, 140]], [[218, 114, 161], [184, 106, 149], [192, 136, 125], [190, 138, 94], [212, 152, 91]], [[203, 92, 136], [180, 74, 138], [161, 60, 82], [196, 106, 60], [202, 127, 55]], [[149, 37, 65], [178, 48, 95], [179, 51, 97], [204, 85, 102], [204, 94, 83]], [[126, 15, 40], [140, 15, 55], [175, 46, 95], [211, 120, 127], [193, 135, 118]], [[166, 42, 58], [166, 42, 58], [166, 42, 58], [166, 42, 58], [166, 42, 58]]];const palettePixels=new Uint8Array(paletteSamples.flat(2).length/3*4);let paletteIndex=0;for(const row of paletteSamples)for(const rgb of row){palettePixels.set([...rgb,255],paletteIndex);paletteIndex+=4;}
+  this.palette=new THREE.DataTexture(palettePixels,5,6,THREE.RGBAFormat);this.palette.minFilter=this.palette.magFilter=THREE.LinearFilter;this.palette.needsUpdate=true;
+  this.surfaceUniforms={uTime:{value:0},uFill:{value:1},uOpacity:{value:1},uReflection:{value:0},uPalette:{value:this.palette}};
   const surfaceMaterial=new THREE.ShaderMaterial({glslVersion:THREE.GLSL3,vertexShader:vertex,fragmentShader:surfaceFragment,uniforms:this.surfaceUniforms,transparent:true,depthTest:false,depthWrite:false,toneMapped:false});
   this.surface=new THREE.Mesh(new THREE.PlaneGeometry(1,1.61),surfaceMaterial);this.surface.renderOrder=2;this.scene.add(this.surface);
-  // A closed capsule path includes the two straight sides, not an elliptical outline.
-  const shape=new THREE.Shape();shape.moveTo(.505,-.305);shape.lineTo(.505,.305);shape.absarc(0,.305,.505,0,Math.PI,false);shape.lineTo(-.505,-.305);shape.absarc(0,-.305,.505,Math.PI,Math.PI*2,false);
-  const rimGeo=new THREE.BufferGeometry().setFromPoints(shape.getPoints(180).map(p=>new THREE.Vector3(p.x,p.y,.1)));
-  this.rimMaterial=new THREE.LineBasicMaterial({color:new THREE.Color(2.6,.78,.29),transparent:true,opacity:1,depthTest:false,toneMapped:false,blending:THREE.AdditiveBlending});this.rim=new THREE.LineLoop(rimGeo,this.rimMaterial);this.rim.renderOrder=3;this.scene.add(this.rim);
+  this.rimUniforms={uStrength:{value:1}};this.rimMaterial=new THREE.ShaderMaterial({...additive,glslVersion:THREE.GLSL3,vertexShader:vertex,fragmentShader:rimFragment,uniforms:this.rimUniforms});
+  const rimGeometry=new THREE.PlaneGeometry(1.12,1.73);rimGeometry.translate(0,0,.1);this.rim=new THREE.Mesh(rimGeometry,this.rimMaterial);this.rim.renderOrder=3;this.scene.add(this.rim);
+  this.surfaceReflection=new THREE.Mesh(this.surface.geometry,surfaceMaterial.clone());this.surfaceReflection.material.uniforms=THREE.UniformsUtils.clone(this.surfaceUniforms);this.surfaceReflection.material.uniforms.uPalette.value=this.palette;this.surfaceReflection.material.uniforms.uReflection.value=1;this.surfaceReflection.renderOrder=0;this.scene.add(this.surfaceReflection);
+  this.floorUniforms={uStrength:{value:0}};this.floorWash=new THREE.Mesh(new THREE.PlaneGeometry(3,.22),new THREE.ShaderMaterial({...additive,glslVersion:THREE.GLSL3,vertexShader:vertex,fragmentShader:floorFragment,uniforms:this.floorUniforms}));this.floorWash.renderOrder=0;this.scene.add(this.floorWash);
   const count=64,sparkGeo=new THREE.BufferGeometry();sparkGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(count*3),3));for(const name of ['aSeed','aDrift','aSize']){let values=new Float32Array(count);for(let i=0;i<count;i++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;values[i]=seed/4294967296;}sparkGeo.setAttribute(name,new THREE.BufferAttribute(values,1));}
   this.sparkUniforms={uTime:{value:0},uStrength:{value:1},uPixelRatio:{value:1}};
   this.sparks=new THREE.Points(sparkGeo,new THREE.ShaderMaterial({...additive,glslVersion:THREE.GLSL3,vertexShader:sparkVertex,fragmentShader:sparkFragment,uniforms:this.sparkUniforms}));this.sparks.frustumCulled=false;this.sparks.renderOrder=4;this.scene.add(this.sparks);
@@ -101,13 +107,15 @@ export class DiyaRenderer{
   this.renderer.domElement.dataset.engine='Three.js r180';this.renderer.compile(this.scene,this.camera);
  }
  resize(width,height){this.W=width;this.H=height;const dpr=Math.min(devicePixelRatio||1,width<640?1.15:1.25);this.renderer.setPixelRatio(dpr);this.renderer.setSize(width,height);this.camera.left=-width/2;this.camera.right=width/2;this.camera.top=height/2;this.camera.bottom=-height/2;this.camera.updateProjectionMatrix();this.composer.setPixelRatio(dpr);this.composer.setSize(width,height);this.sparkUniforms.uPixelRatio.value=dpr;}
- begin(){for(const o of [this.fire,this.surface,this.rim,this.sparks,this.reflection])o.visible=false;}
+ begin(){for(const o of [this.fire,this.surface,this.rim,this.sparks,this.reflection,this.surfaceReflection,this.floorWash])o.visible=false;}
  update({x,y,w,fill,visibility,time,life,floor}){let screenX=x-this.W/2,screenY=this.H/2-y;for(const o of [this.fire,this.surface,this.rim,this.sparks]){o.position.set(screenX,screenY,0);o.scale.setScalar(w);o.visible=true;}
   this.fire.visible=life.strength>.004;this.sparks.visible=life.strength>.004;this.fireUniforms.uTime.value=time;this.fireUniforms.uStrength.value=life.strength*visibility;this.fireUniforms.uOpen.value=Math.max(.04,life.open)*(1-life.decay*.35);
-  this.surfaceUniforms.uTime.value=time;this.surfaceUniforms.uFill.value=fill;this.surfaceUniforms.uOpacity.value=visibility*(.76+.24*fill);this.rimMaterial.opacity=fill*.75;
+  this.surfaceUniforms.uTime.value=time;this.surfaceUniforms.uFill.value=fill;this.surfaceUniforms.uOpacity.value=visibility*(.76+.24*fill);this.rimUniforms.uStrength.value=(.035+fill*.65)*visibility;
   this.sparkUniforms.uTime.value=time;this.sparkUniforms.uStrength.value=life.strength*visibility;
+  this.surfaceReflection.visible=this.W>=640;this.surfaceReflection.position.set(screenX,this.H/2-(2*floor-y),0);this.surfaceReflection.scale.set(w,-w,w);const reflect=this.surfaceReflection.material.uniforms;reflect.uTime.value=time;reflect.uFill.value=fill;reflect.uOpacity.value=visibility*(.012+.12*fill);
+  this.floorWash.visible=life.strength>.004;this.floorWash.position.set(screenX,this.H/2-floor,0);this.floorWash.scale.setScalar(w);this.floorUniforms.uStrength.value=life.strength*.09;
   this.reflection.visible=this.W>=640&&life.strength>.004;this.reflection.position.set(screenX,this.H/2-(2*floor-y),0);this.reflection.scale.set(w,-w,w);this.reflection.material.uniforms.uTime.value=time;this.reflection.material.uniforms.uStrength.value=life.strength*.08;this.reflection.material.uniforms.uOpen.value=life.open;
  }
  render(){const now=performance.now();if(this.lastRender){this.frameMs=(this.frameMs||16.7)*.95+(now-this.lastRender)*.05;this.renderer.domElement.dataset.frameMs=this.frameMs.toFixed(1);}this.lastRender=now;this.composer.render();this.renderer.domElement.dataset.fireStrength=this.fireUniforms.uStrength.value.toFixed(3);}
- dispose(){this.noise.dispose();for(const o of [this.fire,this.surface,this.rim,this.sparks]){o.geometry.dispose();o.material.dispose()}this.reflection.material.dispose();this.composer.dispose();this.renderer.dispose();this.renderer.domElement.remove();}
+ dispose(){this.noise.dispose();this.palette.dispose();this.surfaceReflection.material.dispose();this.floorWash.geometry.dispose();this.floorWash.material.dispose();for(const o of [this.fire,this.surface,this.rim,this.sparks]){o.geometry.dispose();o.material.dispose()}this.reflection.material.dispose();this.composer.dispose();this.renderer.dispose();this.renderer.domElement.remove();}
 }
