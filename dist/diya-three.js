@@ -119,3 +119,5 @@ export class DiyaRenderer{
  render(){const now=performance.now();if(this.lastRender){this.frameMs=(this.frameMs||16.7)*.95+(now-this.lastRender)*.05;this.renderer.domElement.dataset.frameMs=this.frameMs.toFixed(1);}this.lastRender=now;this.composer.render();this.renderer.domElement.dataset.fireStrength=this.fireUniforms.uStrength.value.toFixed(3);}
  dispose(){this.noise.dispose();this.palette.dispose();this.surfaceReflection.material.dispose();this.floorWash.geometry.dispose();this.floorWash.material.dispose();for(const o of [this.fire,this.surface,this.rim,this.sparks]){o.geometry.dispose();o.material.dispose()}this.reflection.material.dispose();this.composer.dispose();this.renderer.dispose();this.renderer.domElement.remove();}
 }
+
+export { vertex, surfaceFragment, rimFragment, floorFragment };
