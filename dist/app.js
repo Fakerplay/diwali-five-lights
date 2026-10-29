@@ -1,4 +1,4 @@
-import { DiyaRenderer } from './diya-three.js?v=spread-6';
+import { DiyaRenderer } from './diya-three.js?v=engulf-4';
 import { FestivalEffects } from './festival-effects.js';
 const data=[
 {name:'Diya',sub:'LIGHT · HOPE',color:'#ff6647',dark:'#450f1c',p:['#ef719f','#f9ba79','#c62d76'],desc:'A little flame. A world of hope.',icon:'<path d="M10 34q14-9 22 0 8-9 22 0-5 21-22 21T10 34Z"/><path d="M11 35q21 15 42 0M32 6c-4 7-8 11-8 16a8 8 0 0 0 16 0c0-5-5-11-8-16Z"/>'},
