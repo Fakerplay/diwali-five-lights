@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {vertex,surfaceFragment,rimFragment,floorFragment} from './diya-three.js';
+import {vertex,surfaceFragment,rimFragment,floorFragment} from './diya-three.js?v=spread-6';
 import {FOUNTAIN} from './fountain-physics.mjs';
 
 const flight=`

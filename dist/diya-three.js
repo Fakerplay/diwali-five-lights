@@ -14,35 +14,49 @@ float fbm(vec3 p){return .55*noise3(p)+.29*noise3(p*2.03+7.1)+.16*noise3(p*4.07+
 float capsule(vec2 p){return length(vec2(p.x,max(abs(p.y)-.305,0.)))-.5;}
 vec2 field(vec3 p){
  float d=capsule(p.xy);
- // Emitter is the upper semicircle and its shoulders, never a straight strip.
  float root=.305+sqrt(max(0.,.25-min(p.x*p.x,.25)));
- float rise=max(0.,p.y-root);
- float angle=asin(clamp(p.x/.5,-1.,1.));
- float lobe=.085*sin(angle*3.+uTime*.37)+.055*(noise3(vec3(angle*2.,uTime*.3,4.))-.5);
- float height=(.52+lobe+.20*smoothstep(0.,.5,abs(p.x)))*(.35+.65*uOpen);
- vec3 flow=p*vec3(1.,1.1,1.7)-vec3(0.,uTime*.8,0.);
- vec3 warp=vec3(noise3(flow*1.2+vec3(3.,0.,0.)),noise3(flow+vec3(0.,0.,7.)),noise3(flow+vec3(9.,4.,0.)))-.5;
- float n=fbm(flow*3.5+warp*2.4);
- float shape=1.-rise/max(.06,height)+(n-.5)*1.4;
- float tongues=smoothstep(-.12,.5,shape);
- float width=1.-smoothstep(.46,.83,abs(p.x+warp.x*rise*.32));
- float dz=p.z/(.15+rise*.16);float depth=exp(-dz*dz*2.5);
- float upper=smoothstep(-.2,.30,p.y);float shoulderFade=exp(-max(0.,root-p.y)*14.);shoulderFade*=exp(-max(abs(p.x)-.5,0.)*(18.-11.*smoothstep(.5,1.1,p.y)));
- float outside=smoothstep(-.025,.025,d);
- float collar=exp(-max(d,0.)*20.)*upper;
- float filaments=.3+.7*smoothstep(.24,.8,noise3(flow*8.+warp*2.));
- float body=max(tongues*width*filaments,collar*.65)*depth*upper*outside*shoulderFade;
- float temperature=clamp(.99-.70*rise/max(height,.1)+(n-.5)*.3,0.,1.);
- temperature*=.78+.22*smoothstep(.3,.8,p.y);return vec2(body,temperature);
+ float plumeRoot=.305+sqrt(max(0.,.25-min(p.x*p.x*.49,.25)));
+ float rise=max(0.,p.y-plumeRoot);
+ // Upward advection is shared by the crown and perimeter flames.
+ vec3 flow=p*vec3(1.8,.85,2.2)-vec3(0.,uTime*1.35,0.);
+ vec3 warp=vec3(noise3(flow*2.+3.),noise3(flow*2.+7.),noise3(flow*2.+13.))-.5;
+ float n=fbm(flow*5.+warp*2.8);
+ float fine=noise3(flow*vec3(15.,4.,9.)+warp*3.);
+ float x=p.x+sin(p.y*5.-uTime*1.6)*rise*.065+warp.x*rise*.18;
+ float fingers=.5+.5*sin(x*24.+sin(p.y*3.-uTime*1.4)*1.4+uTime*.65);
+ float height=(.32+.20*fingers+.16*n+.10*(1.-smoothstep(.1,.8,abs(x))))*(.18+.82*uOpen);
+ float reach=.90-rise*.28;
+ float lateral=1.-smoothstep(reach-.18,reach,abs(x));
+ float crown=smoothstep(-.10,.18,1.-rise/max(.04,height)+(n-.5)*.95)*lateral;
+ // Shoulder fuel widens the crown; fire remains rooted to the actual curved edge.
+ float shoulder=exp(-max(0.,root-p.y)*9.);
+ float upper=smoothstep(-.06,.52+warp.y*.18,p.y);
+ crown*=shoulder*upper;
+ crown*=1.-smoothstep(.48,.85,abs(x))*(1.-smoothstep(.38,.92,p.y));
+ // A turbulent skin follows the complete stadium, including lower curved corners.
+ float edgeFlow=sin(p.y*19.-uTime*4.+sign(p.x)*2.)*.5+.5;
+ float edgeWidth=.025+.05*edgeFlow+.025*fine;
+ edgeWidth*=.55+.45*smoothstep(-.75,.55,p.y);
+ float skin=1.-smoothstep(edgeWidth*.25,edgeWidth+.025,max(0.,d)+(n-.5)*.036);
+ skin*=.35+.65*smoothstep(.2,.8,n+fine*.35);
+ float outside=smoothstep(-.018,.015,d);
+ float dz=p.z/(.16+rise*.13);float depth=exp(-dz*dz*2.3);
+ float filaments=.20+.80*smoothstep(.18,.83,fine);
+ float body=max(crown*filaments,skin*1.1)*outside*depth;
+ float heat=clamp(.98-rise/max(height,.1)*.94+(n-.5)*.2,0.,1.);
+ // Side flames stay orange-red, while the crown roots burn peach-white.
+ heat=mix(.63+.16*fine,heat,clamp(crown*2.,0.,1.));
+ heat*=1.-smoothstep(.07,.25,d)*.45;
+ return vec2(body,heat);
 }
 void main(){
  vec3 p=vec3(vLocal.xy,.57);vec3 sum=vec3(0.);float transmission=1.;
  const float stepSize=1.14/36.;
  for(int i=0;i<36;i++){
-  vec2 f=field(p);float density=f.x*8.5;
+  vec2 f=field(p);float density=f.x*6.6;
   float opacity=1.-exp(-density*stepSize);
   vec3 color=mix(vec3(.58,.006,.004),vec3(1.45,.055,.012),smoothstep(.12,.65,f.y));
-  color=mix(color,vec3(3.1,2.05,1.7),smoothstep(.63,.99,f.y));
+  color=mix(color,vec3(3.1,2.05,1.7),smoothstep(.77,1.02,f.y));
   sum+=transmission*opacity*color;
   transmission*=1.-opacity;
   p.z-=stepSize;if(transmission<.025)break;
@@ -65,7 +79,7 @@ float fade=mix(1.,pow(1.-vUv.y,2.6),uReflection);outColor=vec4(linear,mask*uOpac
 }`;
 const sparkVertex=`in float aSeed;in float aDrift;in float aSize;out float vFade;out float vSeed;
 uniform float uTime;uniform float uStrength;uniform float uPixelRatio;
-void main(){float life=fract(uTime*(.28+aDrift*.48)+aSeed);float theta=(aSize-.5)*3.1;vec3 root=vec3(sin(theta)*.53,.305+cos(theta)*.53,0.);vec3 p=root+vec3((aDrift-.5)*life*.45,life*(.7+aSeed*.45),.04);p.x+=sin(uTime*.7+aSeed*60.)*life*.025;vFade=sin(life*3.14159265)*uStrength;vSeed=aSeed;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);gl_PointSize=(1.15+aSize*2.1)*uPixelRatio;}`;
+void main(){float life=fract(uTime*(.28+aDrift*.48)+aSeed);float theta=(aSize-.5)*6.2831853;vec3 root=vec3(sin(theta)*.53,sign(cos(theta))*.305+cos(theta)*.53,0.);vec3 p=root+vec3((aDrift-.5)*life*.45,life*(.7+aSeed*.45),.04);p.x+=sin(uTime*.7+aSeed*60.)*life*.025;float edge=length(vec2(p.x,max(abs(p.y)-.305,0.)))-.5;vFade=sin(life*3.14159265)*uStrength*smoothstep(.005,.04,edge);vSeed=aSeed;gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);gl_PointSize=(1.15+aSize*2.1)*uPixelRatio;}`;
 const sparkFragment=`precision highp float;in float vFade;in float vSeed;out vec4 outColor;
 float segment(vec2 p,vec2 a,vec2 b){vec2 pa=p-a,ba=b-a;return length(pa-ba*clamp(dot(pa,ba)/dot(ba,ba),0.,1.));}
 void main(){vec2 p=gl_PointCoord*2.-1.;float mask;if(vSeed>.91){float d=min(segment(p,vec2(0.,-.75),vec2(.7,.6)),min(segment(p,vec2(.7,.6),vec2(-.7,.6)),segment(p,vec2(-.7,.6),vec2(0.,-.75))));mask=1.-smoothstep(.07,.18,d);}else{float d=length(p);mask=exp(-d*d*4.5)*(1.-smoothstep(.7,1.,d));}outColor=vec4(vec3(2.1,1.25,.69)*mask*vFade,mask*vFade);}`;
@@ -98,7 +112,7 @@ export class DiyaRenderer{
   const rimGeometry=new THREE.PlaneGeometry(1.12,1.73);rimGeometry.translate(0,0,.1);this.rim=new THREE.Mesh(rimGeometry,this.rimMaterial);this.rim.renderOrder=3;this.scene.add(this.rim);
   this.surfaceReflection=new THREE.Mesh(this.surface.geometry,surfaceMaterial.clone());this.surfaceReflection.material.uniforms=THREE.UniformsUtils.clone(this.surfaceUniforms);this.surfaceReflection.material.uniforms.uPalette.value=this.palette;this.surfaceReflection.material.uniforms.uReflection.value=1;this.surfaceReflection.renderOrder=0;this.scene.add(this.surfaceReflection);
   this.floorUniforms={uStrength:{value:0}};this.floorWash=new THREE.Mesh(new THREE.PlaneGeometry(3,.22),new THREE.ShaderMaterial({...additive,glslVersion:THREE.GLSL3,vertexShader:vertex,fragmentShader:floorFragment,uniforms:this.floorUniforms}));this.floorWash.renderOrder=0;this.scene.add(this.floorWash);
-  const count=64,sparkGeo=new THREE.BufferGeometry();sparkGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(count*3),3));for(const name of ['aSeed','aDrift','aSize']){let values=new Float32Array(count);for(let i=0;i<count;i++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;values[i]=seed/4294967296;}sparkGeo.setAttribute(name,new THREE.BufferAttribute(values,1));}
+  const count=112,sparkGeo=new THREE.BufferGeometry();sparkGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(count*3),3));for(const name of ['aSeed','aDrift','aSize']){let values=new Float32Array(count);for(let i=0;i<count;i++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;values[i]=seed/4294967296;}sparkGeo.setAttribute(name,new THREE.BufferAttribute(values,1));}
   this.sparkUniforms={uTime:{value:0},uStrength:{value:1},uPixelRatio:{value:1}};
   this.sparks=new THREE.Points(sparkGeo,new THREE.ShaderMaterial({...additive,glslVersion:THREE.GLSL3,vertexShader:sparkVertex,fragmentShader:sparkFragment,uniforms:this.sparkUniforms}));this.sparks.frustumCulled=false;this.sparks.renderOrder=4;this.scene.add(this.sparks);
   this.reflection=new THREE.Mesh(geometry,material.clone());this.reflection.material.uniforms=THREE.UniformsUtils.clone(this.fireUniforms);this.reflection.material.uniforms.uNoise.value=this.noise;this.reflection.renderOrder=0;this.scene.add(this.reflection);
