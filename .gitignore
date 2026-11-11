@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+# local npm package copies used while building; the site uses dist/vendor
+work/three-package/
+work/inter-package/
